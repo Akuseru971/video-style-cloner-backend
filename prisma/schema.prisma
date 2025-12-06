@@ -8,54 +8,84 @@ datasource db {
 }
 
 model User {
-  id        String     @id @default(uuid())
-  email     String     @unique
-  plan      String
-  credits   Int        @default(0)
-  jobs      VideoJob[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id          String        @id @default(uuid())
+  email       String        @unique
+  plan        String        // "free", "pro", "enterprise"
+  credits     Int           @default(3) // Free users get 3 analyses
+  analyses    Analysis[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 }
 
-model VideoJob {
-  id               String        @id @default(uuid())
-  userId           String
-  user             User          @relation(fields: [userId], references: [id])
-  sourceUrl        String
-  sourceVideoUri   String?
-  status           String
-  templateId       String?
-  template         Template?     @relation(fields: [templateId], references: [id])
-  analysisMetadata Json?
-  renderIds        Json?
-  outputUrls       Json?
-  errorMessage     String?
-  inputs           ClientInputs?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+model Analysis {
+  id                String        @id @default(uuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  videoUrl          String        // Original video URL or S3 path
+  videoTitle        String?
+  videoDuration     Int?          // Duration in seconds
+  platform          String        // "tiktok", "instagram", "both"
+  status            String        @default("pending") // "pending", "processing", "completed", "failed"
+  viralityScore     Float?        // 0-100 score
+  contentAnalysis   Json?         // AI analysis results (objects, scenes, emotions)
+  hashtags          Hashtag[]
+  musicTracks       MusicTrack[]
+  error             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 }
 
-model Template {
-  id               String     @id @default(uuid())
-  sourceVideoJobId String
-  name             String
-  engine           String
-  renderScript     Json
-  slots            Json
-  previewUrl       String?
-  jobs             VideoJob[]
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+model Hashtag {
+  id                String        @id @default(uuid())
+  analysisId        String
+  analysis          Analysis      @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  tag               String        // The hashtag text (without #)
+  category          String        // "trending", "niche", "general"
+  relevanceScore    Float         // 0-100 how relevant to the video
+  trendingScore     Float?        // 0-100 how trending it is
+  engagementRate    Float?        // Estimated engagement rate
+  createdAt         DateTime      @default(now())
 }
 
-model ClientInputs {
-  id         String   @id @default(uuid())
-  videoJobId String   @unique
-  videoJob   VideoJob @relation(fields: [videoJobId], references: [id])
-  logoUri    String?
-  texts      Json
-  colors     Json
-  options    Json
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+model MusicTrack {
+  id                String        @id @default(uuid())
+  analysisId        String
+  analysis          Analysis      @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  title             String
+  artist            String
+  spotifyId         String?       // Spotify track ID
+  previewUrl        String?       // Preview URL from Spotify
+  trendingScore     Float         // 0-100
+  matchScore        Float         // 0-100 how well it matches video content
+  genre             String?
+  tempo             Int?          // BPM
+  energy            Float?        // 0-1 from Spotify API
+  platform          String        // "tiktok", "instagram", "both"
+  createdAt         DateTime      @default(now())
+}
+
+// Trending data cache (updated periodically)
+model TrendingHashtag {
+  id                String        @id @default(uuid())
+  tag               String        @unique
+  platform          String        // "tiktok", "instagram"
+  viewCount         BigInt?
+  postCount         BigInt?
+  engagementRate    Float?
+  category          String?       // e.g., "fashion", "food", "tech"
+  lastUpdated       DateTime      @default(now())
+  createdAt         DateTime      @default(now())
+}
+
+model TrendingMusic {
+  id                String        @id @default(uuid())
+  title             String
+  artist            String
+  spotifyId         String?       @unique
+  platform          String        // "tiktok", "instagram"
+  usageCount        BigInt?       // How many videos use this
+  trendingScore     Float
+  genre             String?
+  lastUpdated       DateTime      @default(now())
+  createdAt         DateTime      @default(now())
 }

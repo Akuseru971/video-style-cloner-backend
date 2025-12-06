@@ -1,175 +1,160 @@
-# Video Style Cloner - Backend API
+# Viral Video Optimizer API
 
-Plateforme d'automatisation de clonage de style vidéo - Colle le lien d'une vidéo, obtiens ta version avec ton logo et ton message.
+Plateforme d'analyse vidéo alimentée par l'IA pour maximiser la viralité sur TikTok et Instagram.
+
+## Vue d'ensemble
+
+Cette API analyse vos vidéos et fournit:
+- **Hashtags optimisés** (trending + niche) pour maximiser la portée
+- **Recommandations musicales** basées sur les tendances actuelles
+- **Score de viralité** pour prédire le potentiel d'engagement
+- **Analyse de contenu** détaillée avec IA (objets, scènes, émotions)
+
+## Fonctionnalités
+
+- ✅ Analyse vidéo avec OpenAI Vision
+- ✅ Génération de hashtags trending et pertinents
+- ✅ Recommandations de musique virale
+- ✅ Score de viralité (0-100)
+- ✅ Support TikTok et Instagram
+- ✅ Freemium: 3 analyses gratuites, puis plan Pro
 
 ## Architecture
 
 - **Backend**: Node.js + TypeScript + Express
-- **DB**: PostgreSQL + Prisma ORM
+- **Database**: PostgreSQL (Prisma ORM)
 - **Queue**: BullMQ + Redis
-- **Storage**: Google Cloud Storage
-- **Vidéo Analysis**: Google Cloud Video Intelligence
-- **Vidéo Rendering**: Creatomate
-
-## Structure du projet
-
-```
-backend/
-├── src/
-│   ├── index.ts              # Point d'entrée
-│   ├── routes/
-│   │   └── jobs.ts           # Routes API
-│   ├── workers/
-│   │   ├── ingestAndAnalyze.ts
-│   │   └── renderVideo.ts
-│   └── lib/
-│       ├── prisma.ts
-│       ├── queues.ts
-│       ├── creatomate.ts
-│       ├── gcpVideo.ts
-│       └── storage.ts
-├── prisma/
-│   └── schema.prisma
-├── package.json
-├── tsconfig.json
-└── .env.example
-```
-
-## Installation locale
-
-### 1. Installer les dépendances
-
-```bash
-npm install
-```
-
-### 2. Configurer les variables d'environnement
-
-```bash
-cp .env.example .env
-# Édite .env avec tes clés API
-```
-
-### 3. Lancer PostgreSQL et Redis (Docker)
-
-```bash
-docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=password postgres:15
-docker run -d -p 6379:6379 redis:7
-```
-
-### 4. Migrer la base de données
-
-```bash
-npm run prisma:migrate
-npm run prisma:generate
-```
-
-### 5. Lancer le serveur + workers
-
-Terminal 1 - API:
-```bash
-npm run dev
-```
-
-Terminal 2 - Ingest Worker:
-```bash
-tsx watch src/workers/ingestAndAnalyze.ts
-```
-
-Terminal 3 - Render Worker:
-```bash
-tsx watch src/workers/renderVideo.ts
-```
+- **AI**: OpenAI GPT-4 Vision
+- **Deployment**: Railway
 
 ## API Endpoints
 
-### `POST /jobs`
-Créer un nouveau job d'analyse
+### POST /analysis
+Crée une nouvelle analyse vidéo
 
 ```json
 {
-  "source_url": "https://www.tiktok.com/..."
+  "video_url": "https://example.com/video.mp4",
+  "platform": "tiktok", // "tiktok", "instagram", ou "both"
+  "user_id": "user@example.com"
 }
 ```
 
-Réponse:
+**Réponse:**
 ```json
 {
-  "job_id": "uuid",
-  "status": "PENDING_ANALYSIS"
+  "analysis_id": "uuid",
+  "status": "pending"
 }
 ```
 
-### `GET /jobs/:id`
-Récupérer le statut + template
+### GET /analysis/:id
+Récupère les résultats d'analyse
 
-### `POST /jobs/:id/inputs`
-Soumettre logo + textes
-
+**Réponse:**
 ```json
 {
-  "logo_uri": "https://...",
-  "texts": {
-    "hook": "Ton message ici",
-    "benefit": "...",
-    "cta": "..."
+  "id": "uuid",
+  "status": "completed",
+  "virality_score": 92,
+  "content_analysis": {
+    "objects": ["product", "person"],
+    "scenes": ["unboxing"],
+    "emotions": ["excited"]
   },
-  "colors": {
-    "primary": "#FF006E"
-  },
-  "options": {
-    "formats": ["9:16", "1:1"]
-  }
+  "hashtags": [
+    {
+      "tag": "viral",
+      "category": "trending",
+      "relevance_score": 95,
+      "trending_score": 98
+    }
+  ],
+  "music_tracks": [
+    {
+      "title": "Trending Sound #1",
+      "artist": "TikTok Audio",
+      "trending_score": 95,
+      "match_score": 90,
+      "platform": "tiktok"
+    }
+  ]
 }
 ```
 
-### `POST /jobs/:id/render`
-Lancer le rendu vidéo
+### GET /user/:email/history
+Récupère l'historique des analyses d'un utilisateur
 
-### `GET /jobs/:id/result`
-Récupérer la vidéo finale
+**Réponse:**
+```json
+{
+  "credits": 2,
+  "plan": "free",
+  "analyses": [
+    {
+      "id": "uuid",
+      "video_url": "https://example.com/video.mp4",
+      "status": "completed",
+      "virality_score": 92,
+      "created_at": "2024-12-06T10:00:00Z"
+    }
+  ]
+}
+```
 
-## Déploiement sur Railway
+## Variables d'environnement
 
-### 1. Créer un projet Railway
+```env
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+REDIS_HOST=localhost
+REDIS_PORT=6379
+OPENAI_API_KEY=sk-...
+PORT=3000
+NODE_ENV=production
+```
+
+## Installation
 
 ```bash
-railway init
+# Installer les dépendances
+npm install
+
+# Générer le client Prisma
+npx prisma generate
+
+# Exécuter les migrations
+npx prisma migrate deploy
+
+# Démarrer le serveur
+npm run dev
 ```
 
-### 2. Ajouter PostgreSQL + Redis
-
-Dans le dashboard Railway :
-- Ajoute un service **PostgreSQL**
-- Ajoute un service **Redis**
-
-### 3. Configurer les variables d'environnement
-
-Dans Railway, Settings > Variables :
-- `DATABASE_URL` (auto depuis Postgres)
-- `REDIS_HOST` (auto depuis Redis)
-- `REDIS_PORT` (auto depuis Redis)
-- `GCP_PROJECT_ID`
-- `GCP_BUCKET_NAME`
-- `CREATOMATE_API_KEY`
-- `GOOGLE_APPLICATION_CREDENTIALS` (upload le JSON)
-
-### 4. Déployer
+## Développement
 
 ```bash
-railway up
+# Mode développement avec hot reload
+npm run dev
+
+# Build production
+npm run build
+
+# Démarrer en production
+npm start
 ```
 
-## Prochaines étapes
+## Worker Background
 
-- [ ] Implémenter le téléchargement réel des vidéos (TikTok, YouTube, Instagram)
-- [ ] Intégrer l'API Google Video Intelligence pour l'analyse
-- [ ] Intégrer l'API Creatomate pour le rendu réel
-- [ ] Ajouter l'authentification utilisateur (JWT)
-- [ ] Implémenter le système de crédits
-- [ ] Ajouter des webhooks pour la notification de fin de rendu
-- [ ] Créer un frontend Next.js
+Le worker d'analyse vidéo s'exécute automatiquement au démarrage du serveur et traite les jobs en file d'attente.
 
-## Licence
+## TODO: Fonctionnalités futures
+
+- [ ] Intégration Spotify API pour données musicales réelles
+- [ ] Extraction de frames vidéo pour analyse OpenAI Vision
+- [ ] Scraping des hashtags trending TikTok/Instagram
+- [ ] Système de cache pour les données trending
+- [ ] Webhooks pour notifications de résultats
+- [ ] Interface frontend React
+
+## License
 
 MIT

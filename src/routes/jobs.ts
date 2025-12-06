@@ -1,130 +1,137 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { ingestAndAnalyzeQueue, renderQueue } from '../lib/queues';
+import { videoAnalysisQueue } from '../lib/queues';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// POST /jobs - Create new job
+// POST /analysis - Create new video analysis
 router.post('/', async (req, res) => {
   try {
-    const { source_url } = req.body;
-    const userId = req.body.user_id || 'demo-user'; // TODO: add auth
+    const { video_url, platform, user_id } = req.body;
+    const userId = user_id || 'demo-user';
 
-    const job = await prisma.videoJob.create({
+    // Check user credits
+    let user = await prisma.user.findUnique({ where: { email: userId } });
+    if (!user) {
+      user = await prisma.user.create({
+        data: { email: userId, plan: 'free', credits: 3 }
+      });
+    }
+
+    if (user.credits <= 0 && user.plan === 'free') {
+      return res.status(403).json({ error: 'No credits remaining. Please upgrade to pro plan.' });
+    }
+
+    // Create analysis
+    const analysis = await prisma.analysis.create({
       data: {
-        userId,
-        sourceUrl: source_url,
-        status: 'PENDING_ANALYSIS',
-      },
+        userId: user.id,
+        videoUrl: video_url,
+        platform: platform || 'both',
+        status: 'pending'
+      }
     });
 
-    await ingestAndAnalyzeQueue.add('INGEST_AND_ANALYZE', { jobId: job.id });
+    // Deduct credit for free users
+    if (user.plan === 'free') {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { credits: user.credits - 1 }
+      });
+    }
 
-    res.json({ job_id: job.id, status: job.status });
+    // Queue analysis job
+    await videoAnalysisQueue.add('analyze-video', {
+      analysisId: analysis.id,
+      videoUrl: video_url,
+      platform: platform || 'both'
+    });
+
+    res.json({ analysis_id: analysis.id, status: 'pending' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error('Error creating analysis:', error);
+    res.status(500).json({ error: 'Failed to create analysis' });
   }
 });
 
-// GET /jobs/:id - Get job status
+// GET /analysis/:id - Get analysis result
 router.get('/:id', async (req, res) => {
   try {
-    const job = await prisma.videoJob.findUnique({
-      where: { id: req.params.id },
-      include: { template: true, inputs: true },
+    const { id } = req.params;
+
+    const analysis = await prisma.analysis.findUnique({
+      where: { id },
+      include: {
+        hashtags: true,
+        musicTracks: true
+      }
     });
 
-    if (!job) {
-      return res.status(404).json({ error: 'Job not found' });
+    if (!analysis) {
+      return res.status(404).json({ error: 'Analysis not found' });
     }
 
     res.json({
-      job_id: job.id,
-      status: job.status,
-      template: job.template
-        ? {
-            id: job.template.id,
-            slots: job.template.slots,
-          }
-        : null,
-      inputs: job.inputs ? { texts: job.inputs.texts, colors: job.inputs.colors } : null,
+      id: analysis.id,
+      status: analysis.status,
+      virality_score: analysis.viralityScore,
+      content_analysis: analysis.contentAnalysis,
+      hashtags: analysis.hashtags.map(h => ({
+        tag: h.tag,
+        category: h.category,
+        relevance_score: h.relevanceScore,
+        trending_score: h.trendingScore
+      })),
+      music_tracks: analysis.musicTracks.map(m => ({
+        title: m.title,
+        artist: m.artist,
+        preview_url: m.previewUrl,
+        trending_score: m.trendingScore,
+        match_score: m.matchScore,
+        platform: m.platform
+      })),
+      error: analysis.error
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error('Error fetching analysis:', error);
+    res.status(500).json({ error: 'Failed to fetch analysis' });
   }
 });
 
-// POST /jobs/:id/inputs - Submit inputs
-router.post('/:id/inputs', async (req, res) => {
+// GET /user/:email/analyses - Get user's analysis history
+router.get('/user/:email/history', async (req, res) => {
   try {
-    const { logo_uri, texts, colors, options } = req.body;
-    const jobId = req.params.id;
+    const { email } = req.params;
 
-    const job = await prisma.videoJob.findUnique({ where: { id: jobId } });
-    if (!job) {
-      return res.status(404).json({ error: 'Job not found' });
-    }
-
-    await prisma.clientInputs.upsert({
-      where: { videoJobId: jobId },
-      update: { logoUri: logo_uri, texts, colors, options },
-      create: { videoJobId: jobId, logoUri: logo_uri, texts, colors, options },
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: {
+        analyses: {
+          orderBy: { createdAt: 'desc' },
+          take: 20
+        }
+      }
     });
 
-    await prisma.videoJob.update({
-      where: { id: jobId },
-      data: { status: 'READY_TO_RENDER' },
-    });
-
-    res.json({ job_id: jobId, status: 'READY_TO_RENDER' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /jobs/:id/render - Launch render
-router.post('/:id/render', async (req, res) => {
-  try {
-    const jobId = req.params.id;
-
-    const job = await prisma.videoJob.findUnique({
-      where: { id: jobId },
-      include: { template: true, inputs: true },
-    });
-
-    if (!job || !job.template || !job.inputs) {
-      return res.status(400).json({ error: 'Missing template or inputs' });
-    }
-
-    await prisma.videoJob.update({
-      where: { id: jobId },
-      data: { status: 'RENDERING' },
-    });
-
-    await renderQueue.add('RENDER_VIDEO', { jobId });
-
-    res.json({ job_id: jobId, status: 'RENDERING' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// GET /jobs/:id/result - Get final result
-router.get('/:id/result', async (req, res) => {
-  try {
-    const job = await prisma.videoJob.findUnique({ where: { id: req.params.id } });
-    if (!job) {
-      return res.status(404).json({ error: 'Job not found' });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
     }
 
     res.json({
-      job_id: job.id,
-      status: job.status,
-      outputs: job.outputUrls || {},
+      credits: user.credits,
+      plan: user.plan,
+      analyses: user.analyses.map(a => ({
+        id: a.id,
+        video_url: a.videoUrl,
+        status: a.status,
+        virality_score: a.viralityScore,
+        created_at: a.createdAt
+      }))
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error('Error fetching user history:', error);
+    res.status(500).json({ error: 'Failed to fetch user history' });
   }
 });
 
