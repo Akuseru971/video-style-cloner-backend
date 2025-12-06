@@ -16,7 +16,7 @@ app.get('/health', (req, res) => {
 });
 
 // Routes
-app.use('/analysis', jobsRouter);
+app.use('/', jobsRouter);
 
 // Start server
 app.listen(PORT, () => {
