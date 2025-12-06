@@ -5,6 +5,20 @@ import { videoAnalysisQueue } from '../lib/queues';
 const router = Router();
 const prisma = new PrismaClient();
 
+
+// TEST endpoint - ultra simple, pas de DB ni Redis
+router.post('/test', async (req, res) => {
+  return res.json({
+    success: true,
+    message: 'API fonctionne!',
+    data: {
+      hashtags: ['#viral', '#trending', '#fyp', '#tiktok', '#instagram'],
+      music_tracks: ['Trending Sound 1', 'Viral Beat 2023', 'Popular Mix'],
+      virality_score: 85,
+      timestamp: new Date().toISOString()
+    }
+  });
+});
 // POST /analysis - Create new video analysis
 router.post('/', async (req, res) => {
   try {
